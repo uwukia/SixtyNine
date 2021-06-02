@@ -260,4 +260,209 @@ I tried bodging some things, which made the code worse and worse until I decided
 I don't suggest running that junk. I can't be bothered to explain the details to why. 
 But it was a good start! The fact that I barely had any javascript errors is a good sign!
 
+
+Okay, I went to sleep and now I've woken up with a fresh mind. Let's go through all the problems:
+
+(1) I was grabbing every expression, joining it with every expression and spitting all operations we can perform on them. But that's not
+  the expected behavior. Once we get to operations=2, it'll join atoms with single operations, but also single operations with other single
+  operations. That's a total of 3 operations, not two!
+
+(2) Even though it already had a one or two operation expression for a number, it still added longer representations, even though I only care
+  about the shortest ones.
+
+(3) One of the things my algorithm gave me for 1 is (69 + 6) ** (9 ** -69), which is accurate to 66 decimal places, but no, it is not exactly
+  equal to 1. Worse than that, we all know that 0.1+0.2 !== 0.3, so I need to address that as well.
+
+(4) I was planning to ignore that (a+b) = (b+a), but it seems more elegant to set a boolean variable that will take care of letting the algorithm
+  only do the first one and not the second.
+
+(5) For some reason it only gave me (69 + -69), but not (69 - 69) for zero. But that's because of the way I bodged things in the end. I tried
+  filtering out repetition in a bad way.
+
+(6) And more!
+
+I'm going to create the notation p(N), which is the set of all expressions that represent the number N with the fewest amount of operations.
+Example: p(0) = {(69 - 69), (69 + -69)}
+When we're looking for expressions with 3 operations, we're looking for all N such that p(N) = 3, we'll call that p|3
+
+To address problem (1), let's ask: what are all the possibilities of p|2 expressions? We can either join p|1 with p|0, or p|0 with p|1.
+What about p|3? Well, we either join p|2 with p|0, p|1 with p|1, or p|0 with p|2.
+for p|X, we'll have p|(X-1) with p|0, p(X-2) with p|1, ... , p|0 with p|(X-1)
+
+In mathematical speech, what we're looking for is all the compositions of (X-1) with two parts. So with every pair of numbers that add up to X-1,
+I'll only look for expressions that match those descriptions. For example, joining p|2 and p|1 is a way to make p|4. So I'll only care about
+p|2 on the left, and p|1 on the right. And of course, I'll set a flag that once the left side is smaller than the outside, it'll simply ignore
+plus and multiply operations (because p|1 + p|2 is the same as p|2 + p|1). So that solves problem (4)
+
+To address problem (3), instead of working with pure javascript numbers, I'll create a class of exact numbers, that instead of storing (2/3), it'll
+store the integer 2 and the integer 3. Instead of 0.1, it'll store 1 and 10. We'll only care about the decimal expansion when we want to display
+the number, never when performing evaluations.
+
+(2) and (5) are bugs that were created from badly written code, that I'm sure will fix themselves.
+
+Let's create the Exact numbers class
+
 */
+
+class Exact {
+  constructor (N) {
+    this.num = BigInt(N)
+    this.den = 1n
+    this.root = 1n
+  }
+
+  get copy() {
+    const Copy = new Exact(1)
+    Copy.num = this.num
+    Copy.den = this.den
+    Copy.root = this.root
+    return Copy
+  }
+
+  static gcd(X, Y) {
+    if (Y > X) {
+      const temp = X
+      X = Y
+      Y = temp
+    }
+    while (true) {
+        if (Y == 0) return X
+        X %= Y
+        if (X == 0) return Y
+        Y %= X
+    }
+  }
+
+  static Abs(X) {
+    return X < 0n ? -X : X
+  }
+
+  get inverse() {
+    const Inv = new Exact(1n)
+    const Factor = this.num < 0n ? -1n : 1n
+
+    Inv.num = Factor * this.den
+    Inv.den = Exact.Abs(this.num)
+    Inv.root = this.root
+    return Inv
+  }
+
+  plus(that) {
+    const Num = this.num * that.den + this.den * that.num
+    const Den = this.den * that.den
+    const GCD = Exact.gcd(Exact.Abs(Num), Den)
+
+    const Sum = new Exact(1)
+    Sum.num = Num / GCD
+    Sum.den = Den / GCD
+
+    return Sum
+  }
+
+  minus(that) {
+    const Num = this.num * that.den - this.den * that.num
+    const Den = this.den * that.den
+    const GCD = Exact.gcd(Exact.Abs(Num), Den)
+
+    const Sub = new Exact(1)
+    Sub.num = Num / GCD
+    Sub.den = Den / GCD
+
+    return Sub
+  }
+
+  times(that) {
+    const Num = this.num * that.num
+    const Den = this.den * that.den
+    const GCD = Exact.gcd(Exact.Abs(Num), Den)
+
+    const Mul = new Exact(1)
+    Mul.num = Num / GCD
+    Mul.den = Den / GCD
+
+    return Mul
+  }
+
+  over(that) {
+
+    if (that.num === 0n) return { error: true }
+
+    const Num = this.num * that.den
+    const Den = this.den * that.num
+    const AbsDen = Exact.Abs(Den)
+    const GCD = Exact.gcd(Exact.Abs(Num), AbsDen)
+
+    const Factor = Den < 0n ? -1n : 1n
+
+    const Div = new Exact(1)
+    Div.num = Factor * Num / GCD
+    Div.den = AbsDen / GCD
+
+    return Div
+  }
+
+  toThe(that) {
+    if (that.root !== 1n) return { error: true }
+
+    const Root = that.den
+
+    const This = that.num < 0n ? this.inverse : this.copy
+    let Res = This.copy
+
+    for (let i = 1n; i < Exact.Abs(that.num); i += 1n) {
+      Res = Res.times(This)
+      if (BigIntLog10(Res.num) > 20) return { overflow: true }
+    }
+
+    Res.root = Root
+    return Res
+  }
+
+  get display() {
+    if (this.den !== 1n) return { float: true }
+    if (this.num === 0n) return '0'
+
+    let sign = ''
+
+    let Int = this.num
+    if (Int < 0n) {
+      Int = Exact.Abs(Int)
+      sign += '-'
+    }
+
+    const Digit = [0n, 1n, 2n, 3n, 4n, 5n, 6n, 7n, 8n, 9n]
+
+    let returnString = ''
+    while (Int > 0n) {
+      const Mod = Int % 10n
+      returnString = Digit.indexOf(Mod).toString() + returnString
+      Int /= 10n
+    }
+  
+    return sign + returnString
+  }
+}
+
+const BigIntLog10 = (bigInt) => {
+  let counter = 0
+  while (bigInt > 10n) {
+    bigInt /= 10n
+    counter++
+  }
+
+  return counter
+}
+
+/*
+Exact will raise a few flags such as error, overflow or float (I only care about integers)
+Now we just make a really simple function that returns pairs of compositions
+*/
+
+const compositionPair = (Num) => {
+  const Pairs = []
+  for (let i = Num; i >= 0; i--) {
+    Pairs.push([i, Num - i])
+  }
+
+  return Pairs
+}
