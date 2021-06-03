@@ -408,18 +408,24 @@ class Exact {
 
     const This = that.num < 0n ? this.inverse : this.copy
     let Res = This.copy
+    
+    const NumAbs = Exact.Abs(that.num)
 
-    for (let i = 1n; i < Exact.Abs(that.num); i += 1n) {
+    if (NumAbs > 1000n) return { overflow: true }
+
+    for (let i = 1n; i < NumAbs; i += 1n) {
       Res = Res.times(This)
       if (BigIntLog10(Res.num) > 20) return { overflow: true }
     }
-
+    const GCD = Exact.gcd(Exact.Abs(Res.num), Res.den)
+    Res.num = Res.num / GCD
+    Res.den = Res.den / GCD
     Res.root = Root
     return Res
   }
 
   get display() {
-    if (this.den !== 1n) return { float: true }
+    if (this.den !== 1n || this.root !== 1n) return { float: true }
     if (this.num === 0n) return '0'
 
     let sign = ''
@@ -465,4 +471,147 @@ const compositionPair = (Num) => {
   }
 
   return Pairs
+}
+
+// Now we need to recreate atoms and expressions using Exact
+
+class Atom2 {
+  constructor (value) {
+    this.evaluate = new Exact(value)
+
+    const abs = Math.abs(value)
+    const pow = Math.floor(Math.log10(abs))
+
+    this.start = Math.floor(abs / (10 ** pow))
+    this.end = abs % 10
+
+    this.display = this.evaluate.display
+  }
+}
+
+class Expression2 {
+  constructor (leftTerm, operation, rightTerm) {
+    this.left = leftTerm
+    this.right = rightTerm
+    this.operation = operation
+
+    this.start = leftTerm.start
+    this.end = rightTerm.end
+
+    this.complete = this.start === 6 && this.end === 9
+  }
+
+  static get Operations() {
+    return {
+      '+': (left, right) => {return left.plus(right)},
+      '-': (left, right) => {return left.minus(right)},
+      '*': (left, right) => {return left.times(right)},
+      '/': (left, right) => {return left.over(right)},
+      '**': (left, right) => {return left.toThe(right)}
+    }
+  }
+
+  get evaluate() {
+    const Left = this.left.evaluate
+    const Right = this.right.evaluate
+
+    const Eval = Expression2.Operations[this.operation](Left, Right)
+    return Eval
+  }
+
+  get display() {
+    const Left = this.left.display
+    const Right = this.right.display
+
+    return `(${Left} ${this.operation} ${Right})`
+  }
+}
+
+const getExpression_version2 = (N) => {
+
+  const OperationList = Object.keys(Expression2.Operations)
+  const knownNumbers = ['69', '-69']
+
+  const List = [
+    {
+      '-6': [new Atom2(-6)],
+      '6': [new Atom2(6)],
+      '-9': [new Atom2(-9)],
+      '9': [new Atom2(9)],
+      '69': [new Atom2(69)],
+      '-69': [new Atom2(-69)]
+    }
+  ]
+
+  if (N === 0) return List
+
+  for (let operations = 1; operations <= N; operations++) {
+    const newList = {float: []}
+    const Compositions = compositionPair(operations - 1)
+
+    console.log(`-> Progress: Looking for expressions with ${operations} operations...`)
+
+    Compositions.forEach((composition, index) => {
+
+      const LeftNumbers = List[composition[0]]
+      const RightNumbers = List[composition[1]]
+      const ignoreSumAndMul = composition[0] < composition[1]
+
+      console.log(` -> Progress: ${(100 * (index / Compositions.length)).toPrecision(3)}%`)
+
+      const Length = Object.keys(LeftNumbers).length
+      let counter = 0
+      for (const LeftExpressions in LeftNumbers) {
+        if (operations > 3 && counter % 10 === 1) console.log(`  -> Progress: ${(100 * (counter / Length)).toPrecision(3)}%`)
+        for (const RightExpressions in RightNumbers) {
+          for (const Operation of OperationList) {
+            if ((ignoreSumAndMul && (Operation === '+' || Operation === '*'))) break
+
+            LeftNumbers[LeftExpressions].forEach(leftExpression => {
+              RightNumbers[RightExpressions].forEach(rightExpression => {
+                if (leftExpression.end !== rightExpression.start) {
+                  const newExpression = new Expression2(leftExpression, Operation, rightExpression)
+
+                  const Verify = newExpression.evaluate
+
+                  if (!Verify.error && !Verify.overflow) {
+                    const Display = Verify.display
+                    if (Display.float) {
+                      newList.float.push(newExpression)
+                    } else {
+                      if (!knownNumbers.includes(Display)) {
+                        if (!newList.hasOwnProperty(Display)) newList[Display] = []
+                        newList[Display].push(newExpression)
+                      }
+                    }
+                  }
+                }
+              })
+            })
+          }
+        }
+        counter++
+      }
+    })
+
+    const newKeys = Object.keys(newList)
+    newKeys.forEach(New => {
+      if (New > -10000 && New < 10000 && newList[New].filter(expression => expression.complete).length > 0) knownNumbers.push(New)
+    })
+
+    List.push(newList)
+  }
+
+  const DisplayList = []
+
+  List.forEach(N => {
+    const Obj = {}
+    for (const Num in N) {
+      const DisplayNum = N[Num].filter(expression => expression.complete ).map(expression => expression.display)
+      if (DisplayNum.length > 0) Obj[Num] = DisplayNum
+    }
+    DisplayList.push(Obj)
+  })
+
+  return {DisplayList, knownNumbers}
 }
