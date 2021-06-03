@@ -375,7 +375,7 @@ class Exact {
     const Num = this.num * that.num
     const Den = this.den * that.den
     const GCD = Exact.gcd(Exact.Abs(Num), Den)
-
+    if (GCD === 0n) return new Exact(0)
     const Mul = new Exact(1)
     Mul.num = Num / GCD
     Mul.den = Den / GCD
@@ -411,11 +411,11 @@ class Exact {
     
     const NumAbs = Exact.Abs(that.num)
 
-    if (NumAbs > 1000n) return { overflow: true }
+    if (NumAbs > 100n) return { overflow: true }
 
     for (let i = 1n; i < NumAbs; i += 1n) {
       Res = Res.times(This)
-      if (BigIntLog10(Res.num) > 20) return { overflow: true }
+      if (Math.abs(BigIntLog10(Res.num) - BigIntLog10(Res.den)) > 20) return { overflow: true }
     }
     const GCD = Exact.gcd(Exact.Abs(Res.num), Res.den)
     Res.num = Res.num / GCD
@@ -451,7 +451,7 @@ class Exact {
 
 const BigIntLog10 = (bigInt) => {
   let counter = 0
-  while (bigInt > 10n) {
+  while (Exact.Abs(bigInt) > 10n) {
     bigInt /= 10n
     counter++
   }
@@ -607,7 +607,7 @@ const getExpression_version2 = (N) => {
   List.forEach(N => {
     const Obj = {}
     for (const Num in N) {
-      const DisplayNum = N[Num].filter(expression => expression.complete ).map(expression => expression.display)
+      const DisplayNum = N[Num].map(expression => expression.display)
       if (DisplayNum.length > 0) Obj[Num] = DisplayNum
     }
     DisplayList.push(Obj)
@@ -615,3 +615,132 @@ const getExpression_version2 = (N) => {
 
   return {DisplayList, knownNumbers}
 }
+
+/*
+
+Seems to be working well! However, still takes a long time to do N>3, so I'll have to drop the idea of getting every possible expression.
+
+I wanted the algorithm to display every possible expression for a certain number so it could catch other alternative expressions for a number.
+Examples include:
+
+5   (6 + 9) / (-6 + 9)  | ((6 / 9) * -6) + 9
+14  (6 + 9) - (69 / 69) | ((69 + 69) / 6) - 9
+27  ((-6 + 9) * 6) + 9  | (-6 + 9) ** (-6 + 9)
+
+However, there's a catch to this. Not only it gave me these alternatives, it also gave me alternatives such as:
+
+5  (((6 / -9) * 6) + 9) | (((-6 / 9) * 6) + 9) | (((6 / 9) * -6) + 9) | (((-6 / -9) * -6) + 9) | (((6 / -9) * 6) - -9) | ...
+
+Which are fundamentally, the same, just with some swapped signs and stuff. So if I wanted to only care about fundamentally different operations,
+I'd have to get very theoretical and make my code more complicated. So with the cost of losing that information, I'll create a faster algorithm
+that just cares about the first expression it ever finds for that number.
+
+*/
+
+const getExpression_version3 = (N) => {
+
+  const OperationList = Object.keys(Expression2.Operations).filter(op => op !== '**')
+  const knownNumbers = ['69', '-69']
+
+  const List = [
+    {
+      '-6': new Atom2(-6),
+      '6': new Atom2(6),
+      '-9': new Atom2(-9),
+      '9': new Atom2(9),
+      '69': new Atom2(69),
+      '-69': new Atom2(-69)
+    }
+  ]
+
+  if (N === 0) return List
+
+  for (let operations = 1; operations <= N; operations++) {
+
+    List[operations] = {}
+
+    const Compositions = compositionPair(operations - 1)
+
+    console.log(`-> Progress: Looking for expressions with ${operations} operations...`)
+
+    Compositions.forEach((composition, index) => {
+
+      const LeftNumbers = List[composition[0]]
+      const RightNumbers = List[composition[1]]
+      const ignoreSumAndMul = composition[0] < composition[1]
+
+      console.log(` -> Progress: ${(100 * (index / Compositions.length)).toPrecision(3)}%`)
+
+      const Length = Object.keys(LeftNumbers).length
+      let counter = 0
+      let floatCounter = 0
+      for (const LeftIndex in LeftNumbers) {
+        if (operations > 3 && counter % 100 === 1) console.log(`  -> Progress: ${(100 * (counter / Length)).toPrecision(3)}%`)
+        for (const RightIndex in RightNumbers) {
+
+          const LeftExpression = LeftNumbers[LeftIndex]
+          const RightExpression = RightNumbers[RightIndex]
+
+          for (const Operation of OperationList) {
+            if ((ignoreSumAndMul && (Operation === '+' || Operation === '*'))) break
+
+            if (LeftExpression.end !== RightExpression.start) {
+              const newExpression = new Expression2(LeftExpression, Operation, RightExpression)
+
+              const Verify = newExpression.evaluate
+
+              if (!Verify.error && !Verify.overflow) {
+                const Display = Verify.display
+                if (Display.float) {
+                  List[operations]['float' + floatCounter.toString()] = newExpression
+                } else {
+                  if (!knownNumbers.includes(Display) && Display.length < 20) {
+                    List[operations][Display] = newExpression
+                    if (newExpression.complete) knownNumbers.push(Display)
+                  }
+                }
+              }
+            }
+
+            floatCounter++
+          }
+        }
+        counter++
+      }
+    })
+  }
+
+  const DisplayList = []
+
+  List.forEach(N => {
+    const Obj = {}
+    for (const Num in N) {
+      const DisplayNum = N[Num].complete ? N[Num].display : false
+      if (DisplayNum) Obj[Num] = DisplayNum
+    }
+    DisplayList.push(Obj)
+  })
+
+  return {DisplayList, knownNumbers}
+}
+
+/*
+
+It worked perfectly, I cannot believe it.
+One of the problems was the freaking ** operator, it's SO PAINFULLY SLOW. Well, I did implement it terribly.
+Did I fix it by optimizing it? No, I just filtered it out on line 642 :)
+
+BUT IT'S SO FAST NOW WOHOOOOOOOOOOO
+
+N     Average time taken (in seconds)
+1     0.002
+2     0.011
+3     0.076
+4     0.793
+5    16.217
+
+Anyways, here are my results!
+
+https://docs.google.com/spreadsheets/d/1Zn3Y3zqdfaV2orth5W_iYpqbRtPnPmLi9agfxrH4W6w/edit?usp=sharing
+
+*/
