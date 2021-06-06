@@ -675,7 +675,7 @@ const getExpression_version3 = (N) => {
       let counter = 0
       let floatCounter = 0
       for (const LeftIndex in LeftNumbers) {
-        if (operations > 3 && counter % 100 === 1) console.log(`  -> Progress: ${(100 * (counter / Length)).toPrecision(3)}%`)
+        if (operations > 4 && counter % Math.floor(Length / 50) === 0) console.log(`  -> Progress: ${(100 * (counter / Length)).toPrecision(3)}%`)
         for (const RightIndex in RightNumbers) {
 
           const LeftExpression = LeftNumbers[LeftIndex]
@@ -692,10 +692,10 @@ const getExpression_version3 = (N) => {
               if (!Verify.error && !Verify.overflow) {
                 const Display = Verify.display
                 if (Display.float) {
-                  List[operations]['float' + floatCounter.toString()] = newExpression
+                  if (operations < N) List[operations]['float' + floatCounter.toString()] = newExpression
                 } else {
                   if (!knownNumbers.includes(Display) && Display.length < 20) {
-                    List[operations][Display] = newExpression
+                    if (newExpression.complete || operations < N) List[operations][Display] = newExpression
                     if (newExpression.complete) knownNumbers.push(Display)
                   }
                 }
@@ -742,5 +742,16 @@ N     Average time taken (in seconds)
 Anyways, here are my results!
 
 https://docs.google.com/spreadsheets/d/1Zn3Y3zqdfaV2orth5W_iYpqbRtPnPmLi9agfxrH4W6w/edit?usp=sharing
+
+UPDATE: I made it slightly faster by noticing that, if I'm looking for 6 operations, there's no reason it should store incomplete
+or non-integer expressions with 6 operations. They'll be thrown out of the result anyway. This made things a tad faster for me.
+
+N     Average time taken (in seconds)
+1     0.001
+2     0.006
+3     0.042
+4     0.511
+5    11.219
+6   226.500-ish (I only tested it 3 times cause I don't have that much time)
 
 */
